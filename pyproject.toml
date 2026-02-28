@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "rag-runes"
+version = "0.1.0"
+description = "Multimodal tree-RAG for rune-heavy book corpora"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "fastapi>=0.115.0",
+  "numpy>=1.26.0",
+  "PyMuPDF>=1.24.0",
+  "python-multipart>=0.0.9",
+  "rank-bm25>=0.2.2",
+  "requests>=2.31.0",
+  "sentence-transformers>=3.0.0",
+  "uvicorn>=0.30.0"
+]
+
+[project.optional-dependencies]
+ml = ["torch>=2.3.0"]
+dev = [
+  "pytest>=8.0.0",
+  "ruff>=0.6.0"
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["rag_runes*"]
