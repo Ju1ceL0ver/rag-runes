@@ -163,6 +163,7 @@ class HybridTreeIndex:
         dense_weight: float = 0.65,
         sparse_weight: float = 0.35,
         rune_weight: float = 0.12,
+        quality_weight: float = 0.65,
     ) -> list[SearchHit]:
         if not self.node_ids:
             return []
@@ -188,6 +189,16 @@ class HybridTreeIndex:
         dense = _normalize(dense_raw)
         sparse = _normalize(sparse_raw)
         rune_boost = np.zeros_like(dense, dtype=np.float32)
+        quality = np.ones_like(dense, dtype=np.float32)
+
+        for idx, pos in enumerate(positions):
+            node = self.node_by_id[self.node_ids[pos]]
+            if node.level == "chunk":
+                quality[idx] = float(node.metadata.get("chunk_quality", 1.0))
+            elif node.level == "image":
+                quality[idx] = float(node.metadata.get("image_quality", 0.35))
+            else:
+                quality[idx] = 1.0
 
         if contains_rune_query(query):
             for idx, pos in enumerate(positions):
@@ -196,7 +207,9 @@ class HybridTreeIndex:
                 has_images = 1.0 if node.image_ids else 0.0
                 rune_boost[idx] = rune_weight * min(1.0, rune_density + 0.1 * has_images)
 
-        scores = dense_weight * dense + sparse_weight * sparse + rune_boost
+        base_scores = dense_weight * dense + sparse_weight * sparse + rune_boost
+        quality_multiplier = (1.0 - quality_weight) + quality_weight * quality
+        scores = base_scores * quality_multiplier
         order = np.argsort(-scores)[:top_k]
         output: list[SearchHit] = []
         for rank_idx in order:

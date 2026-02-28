@@ -26,6 +26,14 @@ class TreeSearcher:
     def __init__(self, index: HybridTreeIndex) -> None:
         self.index = index
 
+    def _is_low_information_chunk(self, node: DocNode) -> bool:
+        if node.level != "chunk":
+            return False
+        token_count = int(node.metadata.get("token_count", 0))
+        alpha_char_count = int(node.metadata.get("alpha_char_count", 0))
+        char_count = int(node.metadata.get("char_count", len(node.text or "")))
+        return token_count < 3 and alpha_char_count < 12 and char_count < 24
+
     def _children_of_levels(self, parent_ids: list[str], levels: set[str]) -> list[str]:
         output: list[str] = []
         for parent_id in parent_ids:
@@ -131,6 +139,8 @@ class TreeSearcher:
             if hit.node_id in selected_ids:
                 continue
             node = self.index.node_by_id[hit.node_id]
+            if self._is_low_information_chunk(node):
+                continue
             section_id = node.parent_id or ""
             if section_id in seen_sections and len(selected) < (top_k // 2):
                 continue
@@ -143,6 +153,31 @@ class TreeSearcher:
         if len(selected) < top_k:
             for hit in ranked_leafs:
                 if hit.node_id in selected_ids:
+                    continue
+                node = self.index.node_by_id[hit.node_id]
+                if self._is_low_information_chunk(node):
+                    continue
+                selected.append(hit)
+                selected_ids.add(hit.node_id)
+                if len(selected) >= top_k:
+                    break
+
+        if len(selected) < top_k:
+            global_leafs = [
+                node.node_id
+                for node in self.index.nodes
+                if node.level in {"chunk", "image"}
+            ]
+            expanded_ranked = self.index.hybrid_rank(
+                query=query,
+                candidate_ids=global_leafs,
+                top_k=max(top_k * 4, top_k),
+            )
+            for hit in expanded_ranked:
+                if hit.node_id in selected_ids:
+                    continue
+                node = self.index.node_by_id[hit.node_id]
+                if self._is_low_information_chunk(node):
                     continue
                 selected.append(hit)
                 selected_ids.add(hit.node_id)

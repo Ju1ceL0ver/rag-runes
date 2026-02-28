@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 
 from rag_runes.ingest.semantic_segmenter import SemanticSegmenter
 from rag_runes.schema import BookArtifact, DocNode
-from rag_runes.text_utils import normalize_whitespace, rune_density
+from rag_runes.text_utils import normalize_whitespace, rune_density, tokenize
 
 NUMBERED_RE = re.compile(r"^(\d+(?:\.\d+){0,3})[\.\)]?\s+(.+)$")
 ROMAN_RE = re.compile(r"^(?:[IVXLCM]{1,8})[\.\)]?\s+(.+)$")
@@ -19,6 +19,16 @@ class _SectionBuffer:
     page_to: int
     lines: list[str] = field(default_factory=list)
     image_ids: list[str] = field(default_factory=list)
+
+
+@dataclass(slots=True)
+class _ChunkMetrics:
+    token_count: int
+    alpha_char_count: int
+    char_count: int
+    has_markers: bool
+    quality: float
+    keep: bool
 
 
 def detect_heading(line: str) -> tuple[int, str] | None:
@@ -67,6 +77,38 @@ class TreeBuilder:
         if segmenter is None:
             raise ValueError("Segmenter is required in strict mode.")
         self.segmenter = segmenter
+
+    def _chunk_metrics(self, chunk_text: str) -> _ChunkMetrics:
+        normalized = normalize_whitespace(chunk_text)
+        token_count = len(tokenize(normalized))
+        alpha_char_count = sum(1 for ch in normalized if ch.isalpha())
+        char_count = len(normalized)
+        has_markers = ("[OCR]" in chunk_text) or ("[IMAGE " in chunk_text)
+
+        informative = (
+            token_count >= 4
+            or alpha_char_count >= 18
+            or char_count >= 42
+            or has_markers
+        )
+        keep = informative and char_count >= 2
+
+        base_quality = (
+            min(1.0, token_count / 28.0) * 0.5
+            + min(1.0, alpha_char_count / 120.0) * 0.4
+            + (0.1 if has_markers else 0.0)
+        )
+        quality = max(0.0, min(1.0, base_quality))
+        if not keep:
+            quality = 0.0
+        return _ChunkMetrics(
+            token_count=token_count,
+            alpha_char_count=alpha_char_count,
+            char_count=char_count,
+            has_markers=has_markers,
+            quality=quality,
+            keep=keep,
+        )
 
     def build(self, artifact: BookArtifact) -> list[DocNode]:
         nodes: list[DocNode] = []
@@ -176,7 +218,13 @@ class TreeBuilder:
                 max_chars=self.chunk_size,
                 overlap=self.chunk_overlap,
             )
-            for chunk_idx, chunk_text in enumerate(chunks, start=1):
+            kept_chunks: list[tuple[str, _ChunkMetrics]] = []
+            for chunk_text in chunks:
+                metrics = self._chunk_metrics(chunk_text)
+                if metrics.keep:
+                    kept_chunks.append((chunk_text, metrics))
+
+            for chunk_idx, (chunk_text, metrics) in enumerate(kept_chunks, start=1):
                 chunk_id = make_id("chunk")
                 nodes.append(
                     DocNode(
@@ -194,6 +242,10 @@ class TreeBuilder:
                                 merged_rune_density, rune_density(chunk_text)
                             ),
                             "chunk_index": chunk_idx,
+                            "token_count": metrics.token_count,
+                            "alpha_char_count": metrics.alpha_char_count,
+                            "char_count": metrics.char_count,
+                            "chunk_quality": metrics.quality,
                         },
                     )
                 )
@@ -225,6 +277,7 @@ class TreeBuilder:
                             "image_path": image.path,
                             "image_id": image.image_id,
                             "modality": "image",
+                            "image_quality": 0.35 if ocr_text else 0.2,
                         },
                     )
                 )
