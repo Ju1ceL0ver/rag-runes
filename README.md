@@ -12,26 +12,78 @@
 - пишут превью в `samples/epoch_XXX.png`
 - сохраняют чекпоинты в `checkpoints/`
 
+## Без CLI
+
+Все training/sample-сценарии теперь запускаются обычным Python-кодом через конфиги, без `argparse` и без флагов командной строки.
+
 ## cGAN
 
-```powershell
-conda run -n myenv python train_conditional_gan.py --data-dir runes --epochs 100 --batch-size 64
+Тренировка:
+
+```python
+from pathlib import Path
+
+from train_conditional_gan import GanTrainingConfig, train
+
+summary = train(
+    GanTrainingConfig(
+        data_dir=Path("runes"),
+        epochs=100,
+        batch_size=64,
+    )
+)
+print(summary["run_dir"])
 ```
 
 Сэмплинг:
 
-```powershell
-conda run -n myenv python sample_conditional_gan.py --checkpoint artifacts/conditional_gan/<timestamp>/checkpoints/last.pt --class-name 17 --num-samples 8
+```python
+from pathlib import Path
+
+from sample_conditional_gan import GanSamplingConfig, generate
+
+result = generate(
+    GanSamplingConfig(
+        checkpoint=Path("artifacts/conditional_gan/<timestamp>/checkpoints/last.pt"),
+        class_name="17",
+        num_samples=8,
+    )
+)
+print(result["output_dir"])
 ```
 
 ## Diffusion
 
-```powershell
-conda run -n myenv python train_conditional_diffusion.py --data-dir runes --epochs 100 --batch-size 64
+Тренировка:
+
+```python
+from pathlib import Path
+
+from train_conditional_diffusion import DiffusionTrainingConfig, train
+
+summary = train(
+    DiffusionTrainingConfig(
+        data_dir=Path("runes"),
+        epochs=100,
+        batch_size=64,
+    )
+)
+print(summary["run_dir"])
 ```
 
 Сэмплинг:
 
-```powershell
-conda run -n myenv python sample_conditional_diffusion.py --checkpoint artifacts/conditional_diffusion/<timestamp>/checkpoints/last.pt --class-name 17 --num-samples 8
+```python
+from pathlib import Path
+
+from sample_conditional_diffusion import DiffusionSamplingConfig, generate
+
+result = generate(
+    DiffusionSamplingConfig(
+        checkpoint=Path("artifacts/conditional_diffusion/<timestamp>/checkpoints/last.pt"),
+        class_name="17",
+        num_samples=8,
+    )
+)
+print(result["output_dir"])
 ```

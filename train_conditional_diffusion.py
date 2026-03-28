@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-import argparse
 import copy
+from dataclasses import dataclass
 from pathlib import Path
 import shutil
 import time
+from typing import Any
 
 import torch
 from torch import amp
@@ -17,50 +18,43 @@ from torch.utils.data import DataLoader
 from rune_diffusion.dataset import build_datasets
 from rune_diffusion.diffusion import GaussianDiffusion
 from rune_diffusion.model import ConditionalUNet
-from rune_diffusion.utils import count_parameters, save_image_grid, save_json, set_seed, timestamp_string
+from rune_diffusion.utils import (
+    count_parameters,
+    save_image_grid,
+    save_json,
+    select_device,
+    set_seed,
+    timestamp_string,
+)
 
 
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description="Train a class-conditioned diffusion model for rune generation.",
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
-    )
-    parser.add_argument("--data-dir", type=Path, default=Path("runes"))
-    parser.add_argument("--output-dir", type=Path, default=Path("artifacts") / "conditional_diffusion")
-    parser.add_argument("--resume", type=Path, default=None)
-    parser.add_argument("--image-size", type=int, default=64)
-    parser.add_argument("--epochs", type=int, default=40)
-    parser.add_argument("--batch-size", type=int, default=64)
-    parser.add_argument("--num-workers", type=int, default=0)
-    parser.add_argument("--lr", type=float, default=2e-4)
-    parser.add_argument("--weight-decay", type=float, default=1e-4)
-    parser.add_argument("--grad-clip", type=float, default=1.0)
-    parser.add_argument("--ema-decay", type=float, default=0.999)
-    parser.add_argument("--cond-drop-prob", type=float, default=0.1)
-    parser.add_argument("--val-fraction", type=float, default=0.1)
-    parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--base-channels", type=int, default=64)
-    parser.add_argument("--timesteps", type=int, default=1000)
-    parser.add_argument("--beta-start", type=float, default=1e-4)
-    parser.add_argument("--beta-end", type=float, default=2e-2)
-    parser.add_argument("--device", choices=["auto", "cuda", "cpu"], default="auto")
-    parser.add_argument("--preview-every", type=int, default=1)
-    parser.add_argument("--preview-classes", type=int, default=4)
-    parser.add_argument("--preview-samples-per-class", type=int, default=1)
-    parser.add_argument("--sample-steps", type=int, default=50)
-    parser.add_argument("--guidance-scale", type=float, default=4.0)
-    parser.add_argument("--checkpoint-every", type=int, default=5)
-    return parser.parse_args()
-
-
-def select_device(requested: str) -> torch.device:
-    if requested == "cuda":
-        if not torch.cuda.is_available():
-            raise RuntimeError("CUDA requested, but torch.cuda.is_available() is False")
-        return torch.device("cuda")
-    if requested == "cpu":
-        return torch.device("cpu")
-    return torch.device("cuda" if torch.cuda.is_available() else "cpu")
+@dataclass(slots=True)
+class DiffusionTrainingConfig:
+    data_dir: Path = Path("runes")
+    output_dir: Path = Path("artifacts") / "conditional_diffusion"
+    resume: Path | None = None
+    image_size: int = 64
+    epochs: int = 40
+    batch_size: int = 64
+    num_workers: int = 0
+    lr: float = 2e-4
+    weight_decay: float = 1e-4
+    grad_clip: float = 1.0
+    ema_decay: float = 0.999
+    cond_drop_prob: float = 0.1
+    val_fraction: float = 0.1
+    seed: int = 42
+    base_channels: int = 64
+    timesteps: int = 1000
+    beta_start: float = 1e-4
+    beta_end: float = 2e-2
+    device: str = "auto"
+    preview_every: int = 1
+    preview_classes: int = 4
+    preview_samples_per_class: int = 1
+    sample_steps: int = 50
+    guidance_scale: float = 4.0
+    checkpoint_every: int = 5
 
 
 @torch.no_grad()
@@ -114,45 +108,45 @@ def make_preview_conditions(
     return class_ids, torch.tensor(artist_ids, device=device, dtype=torch.long)
 
 
-def main() -> None:
-    args = parse_args()
-    set_seed(args.seed)
+def train(config: DiffusionTrainingConfig | None = None) -> dict[str, Any]:
+    cfg = config or DiffusionTrainingConfig()
+    set_seed(cfg.seed)
 
-    device = select_device(args.device)
-    run_dir = args.output_dir / timestamp_string() if args.resume is None else args.resume.resolve().parent.parent
+    device = select_device(cfg.device)
+    run_dir = cfg.output_dir / timestamp_string() if cfg.resume is None else cfg.resume.resolve().parent.parent
     checkpoints_dir = run_dir / "checkpoints"
     samples_dir = run_dir / "samples"
     checkpoints_dir.mkdir(parents=True, exist_ok=True)
     samples_dir.mkdir(parents=True, exist_ok=True)
 
     train_dataset, val_dataset, metadata = build_datasets(
-        data_dir=args.data_dir,
-        image_size=args.image_size,
-        val_fraction=args.val_fraction,
-        seed=args.seed,
+        data_dir=cfg.data_dir,
+        image_size=cfg.image_size,
+        val_fraction=cfg.val_fraction,
+        seed=cfg.seed,
     )
 
     train_loader = DataLoader(
         train_dataset,
-        batch_size=args.batch_size,
+        batch_size=cfg.batch_size,
         shuffle=True,
-        num_workers=args.num_workers,
+        num_workers=cfg.num_workers,
         pin_memory=device.type == "cuda",
-        persistent_workers=args.num_workers > 0,
+        persistent_workers=cfg.num_workers > 0,
     )
     val_loader = DataLoader(
         val_dataset,
-        batch_size=args.batch_size,
+        batch_size=cfg.batch_size,
         shuffle=False,
-        num_workers=args.num_workers,
+        num_workers=cfg.num_workers,
         pin_memory=device.type == "cuda",
-        persistent_workers=args.num_workers > 0,
+        persistent_workers=cfg.num_workers > 0,
     )
 
     model = ConditionalUNet(
         num_classes=metadata["num_classes"],
         num_artists=metadata["num_artists"],
-        base_channels=args.base_channels,
+        base_channels=cfg.base_channels,
     ).to(device)
     ema_model = copy.deepcopy(model).to(device)
     ema_model.eval()
@@ -160,12 +154,12 @@ def main() -> None:
         parameter.requires_grad_(False)
 
     diffusion = GaussianDiffusion(
-        num_timesteps=args.timesteps,
-        beta_start=args.beta_start,
-        beta_end=args.beta_end,
+        num_timesteps=cfg.timesteps,
+        beta_start=cfg.beta_start,
+        beta_end=cfg.beta_end,
     ).to(device)
 
-    optimizer = AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
+    optimizer = AdamW(model.parameters(), lr=cfg.lr, weight_decay=cfg.weight_decay)
     scaler = amp.GradScaler(device.type, enabled=device.type == "cuda")
     history: list[dict[str, float | int]] = []
     best_val_loss = float("inf")
@@ -174,14 +168,14 @@ def main() -> None:
     best_checkpoint_path: Path | None = None
     last_checkpoint_path: Path | None = None
 
-    if args.resume is not None:
-        checkpoint = torch.load(args.resume, map_location=device)
+    if cfg.resume is not None:
+        checkpoint = torch.load(cfg.resume, map_location=device)
         model.load_state_dict(checkpoint["model_state"])
         ema_model.load_state_dict(checkpoint["ema_state"])
         optimizer.load_state_dict(checkpoint["optimizer_state"])
         for group in optimizer.param_groups:
-            group["lr"] = args.lr
-            group["weight_decay"] = args.weight_decay
+            group["lr"] = cfg.lr
+            group["weight_decay"] = cfg.weight_decay
         history = checkpoint.get("history", [])
         if history:
             best_entry = min(history, key=lambda item: float(item["val_loss"]))
@@ -193,49 +187,49 @@ def main() -> None:
             last_checkpoint_path = path
         start_epoch = int(checkpoint["epoch"]) + 1
 
-    config = {
-        "data_dir": str(args.data_dir.resolve()),
-        "resume": str(args.resume.resolve()) if args.resume is not None else None,
-        "image_size": args.image_size,
-        "epochs": args.epochs,
-        "batch_size": args.batch_size,
-        "lr": args.lr,
-        "weight_decay": args.weight_decay,
-        "grad_clip": args.grad_clip,
-        "ema_decay": args.ema_decay,
-        "cond_drop_prob": args.cond_drop_prob,
-        "val_fraction": args.val_fraction,
-        "seed": args.seed,
-        "base_channels": args.base_channels,
-        "timesteps": args.timesteps,
-        "beta_start": args.beta_start,
-        "beta_end": args.beta_end,
-        "guidance_scale": args.guidance_scale,
-        "sample_steps": args.sample_steps,
+    config_payload = {
+        "data_dir": str(cfg.data_dir.resolve()),
+        "resume": str(cfg.resume.resolve()) if cfg.resume is not None else None,
+        "image_size": cfg.image_size,
+        "epochs": cfg.epochs,
+        "batch_size": cfg.batch_size,
+        "lr": cfg.lr,
+        "weight_decay": cfg.weight_decay,
+        "grad_clip": cfg.grad_clip,
+        "ema_decay": cfg.ema_decay,
+        "cond_drop_prob": cfg.cond_drop_prob,
+        "val_fraction": cfg.val_fraction,
+        "seed": cfg.seed,
+        "base_channels": cfg.base_channels,
+        "timesteps": cfg.timesteps,
+        "beta_start": cfg.beta_start,
+        "beta_end": cfg.beta_end,
+        "guidance_scale": cfg.guidance_scale,
+        "sample_steps": cfg.sample_steps,
         "device": str(device),
         "parameter_count": count_parameters(model),
     }
-    save_json(run_dir / "config.json", config)
+    save_json(run_dir / "config.json", config_payload)
     save_json(run_dir / "dataset_metadata.json", metadata)
 
     fixed_labels, fixed_artists = make_preview_conditions(
         metadata["num_classes"],
         metadata["num_artists"],
-        args.preview_classes,
-        args.preview_samples_per_class,
+        cfg.preview_classes,
+        cfg.preview_samples_per_class,
         device,
     )
     fixed_noise = torch.randn(
         fixed_labels.shape[0],
         1,
-        args.image_size,
-        args.image_size,
+        cfg.image_size,
+        cfg.image_size,
         device=device,
     )
 
     train_start = time.time()
 
-    for epoch in range(start_epoch, args.epochs + 1):
+    for epoch in range(start_epoch, cfg.epochs + 1):
         model.train()
         epoch_loss = 0.0
         seen_items = 0
@@ -245,7 +239,7 @@ def main() -> None:
             class_ids = class_ids.to(device, non_blocking=True)
             artist_ids = artist_ids.to(device, non_blocking=True)
 
-            drop_mask = torch.rand(class_ids.shape[0], device=device) < args.cond_drop_prob
+            drop_mask = torch.rand(class_ids.shape[0], device=device) < cfg.cond_drop_prob
             class_input = class_ids.clone()
             class_input[drop_mask] = model.null_class_idx
             artist_input = artist_ids.clone()
@@ -263,10 +257,10 @@ def main() -> None:
 
             scaler.scale(loss).backward()
             scaler.unscale_(optimizer)
-            clip_grad_norm_(model.parameters(), args.grad_clip)
+            clip_grad_norm_(model.parameters(), cfg.grad_clip)
             scaler.step(optimizer)
             scaler.update()
-            update_ema(ema_model, model, args.ema_decay)
+            update_ema(ema_model, model, cfg.ema_decay)
 
             batch_size = images.shape[0]
             epoch_loss += loss.item() * batch_size
@@ -290,7 +284,7 @@ def main() -> None:
             "optimizer_state": optimizer.state_dict(),
             "history": history,
             "dataset_metadata": metadata,
-            "config": config,
+            "config": config_payload,
             "epoch": epoch,
         }
         if val_loss < best_val_loss:
@@ -305,26 +299,26 @@ def main() -> None:
                     pass
             best_checkpoint_path = next_best_path
 
-        if epoch % args.checkpoint_every == 0 or epoch == args.epochs:
+        if epoch % cfg.checkpoint_every == 0 or epoch == cfg.epochs:
             last_checkpoint_path = checkpoints_dir / f"epoch_{epoch:03d}.pt"
             torch.save(checkpoint, last_checkpoint_path)
 
-        if epoch == 1 or epoch == args.epochs or epoch % args.preview_every == 0:
+        if epoch == 1 or epoch == cfg.epochs or epoch % cfg.preview_every == 0:
             preview = diffusion.ddim_sample(
                 model=ema_model,
-                shape=(fixed_labels.shape[0], 1, args.image_size, args.image_size),
+                shape=(fixed_labels.shape[0], 1, cfg.image_size, cfg.image_size),
                 class_labels=fixed_labels,
                 artist_labels=fixed_artists,
                 initial_noise=fixed_noise,
-                guidance_scale=args.guidance_scale,
-                steps=args.sample_steps,
+                guidance_scale=cfg.guidance_scale,
+                steps=cfg.sample_steps,
                 device=device,
             )
             save_image_grid(
                 preview,
                 samples_dir / f"epoch_{epoch:03d}.png",
-                rows=min(metadata["num_classes"], args.preview_classes),
-                cols=args.preview_samples_per_class,
+                rows=min(metadata["num_classes"], cfg.preview_classes),
+                cols=cfg.preview_samples_per_class,
             )
 
         print(
@@ -352,9 +346,15 @@ def main() -> None:
         "run_dir": str(run_dir.resolve()),
         "best_checkpoint_path": str(best_checkpoint_path.resolve()) if best_checkpoint_path else None,
         "last_checkpoint_path": str(last_checkpoint_path.resolve()) if last_checkpoint_path else None,
+        "history_length": len(history),
     }
     save_json(run_dir / "training_summary.json", summary)
     print(summary)
+    return summary
+
+
+def main(config: DiffusionTrainingConfig | None = None) -> dict[str, Any]:
+    return train(config)
 
 
 if __name__ == "__main__":

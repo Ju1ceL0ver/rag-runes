@@ -19,6 +19,18 @@ def set_seed(seed: int) -> None:
     torch.cuda.manual_seed_all(seed)
 
 
+def select_device(requested: str = "auto") -> torch.device:
+    if requested == "cuda":
+        if not torch.cuda.is_available():
+            raise RuntimeError("CUDA requested, but torch.cuda.is_available() is False")
+        return torch.device("cuda")
+    if requested == "cpu":
+        return torch.device("cpu")
+    if requested == "auto":
+        return torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    raise ValueError("device must be one of: auto, cuda, cpu")
+
+
 def timestamp_string() -> str:
     return time.strftime("%Y%m%d_%H%M%S")
 
@@ -39,13 +51,12 @@ def tensor_to_pil(image: torch.Tensor) -> Image.Image:
     return Image.fromarray(array, mode="L")
 
 
-def save_image_grid(
+def build_image_grid(
     images: torch.Tensor,
-    path: Path,
     rows: int,
     cols: int | None = None,
     padding: int = 4,
-) -> None:
+) -> Image.Image:
     if images.dim() != 4:
         raise ValueError("Expected image tensor with shape [N, C, H, W]")
     if cols is None:
@@ -68,6 +79,41 @@ def save_image_grid(
         x = padding + col * (width + padding)
         y = padding + row * (height + padding)
         canvas.paste(pil_image, (x, y))
+
+    return canvas
+
+
+def save_image_grid(
+    images: torch.Tensor,
+    path: Path,
+    rows: int,
+    cols: int | None = None,
+    padding: int = 4,
+) -> None:
+    canvas = build_image_grid(images, rows=rows, cols=cols, padding=padding)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    canvas.save(path)
+
+
+def save_image_grid_pair(
+    left_images: torch.Tensor,
+    right_images: torch.Tensor,
+    path: Path,
+    rows: int,
+    cols: int | None = None,
+    padding: int = 4,
+    gap: int = 12,
+) -> None:
+    left_canvas = build_image_grid(left_images, rows=rows, cols=cols, padding=padding)
+    right_canvas = build_image_grid(right_images, rows=rows, cols=cols, padding=padding)
+
+    canvas = Image.new(
+        "L",
+        (left_canvas.width + gap + right_canvas.width, max(left_canvas.height, right_canvas.height)),
+        color=0,
+    )
+    canvas.paste(left_canvas, (0, 0))
+    canvas.paste(right_canvas, (left_canvas.width + gap, 0))
 
     path.parent.mkdir(parents=True, exist_ok=True)
     canvas.save(path)

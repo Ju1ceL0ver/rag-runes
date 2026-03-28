@@ -1,0 +1,28 @@
+{
+  "data_dir": "C:\\Users\\Juice_Lover\\rag-runes\\all_runes",
+  "image_size": 64,
+  "epochs": 200,
+  "batch_size": 64,
+  "num_workers": 4,
+  "val_fraction": 0.1,
+  "latent_dim": 128,
+  "g_base_channels": 64,
+  "d_base_channels": 64,
+  "g_lr": 0.0002,
+  "d_lr": 0.0002,
+  "beta1": 0.0,
+  "beta2": 0.9,
+  "ema_decay": 0.999,
+  "seed": 42,
+  "device": "cuda",
+  "amp_dtype": "torch.float16",
+  "scaler_enabled": true,
+  "preview_classes": 8,
+  "generator_parameters": 3732481,
+  "discriminator_parameters": 4913889,
+  "runtime": {
+    "matmul_precision": "high",
+    "allow_tf32": true,
+    "cudnn_benchmark": true
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "best_epoch": 1,
+  "best_metric_name": "val_g_loss",
+  "best_metric_value": 0.38789979513011763,
+  "elapsed_minutes": 0.9821530659993489,
+  "run_dir": "C:\\Users\\Juice_Lover\\rag-runes\\artifacts\\conditional_gan\\20260327_135403",
+  "best_checkpoint_path": "C:\\Users\\Juice_Lover\\rag-runes\\artifacts\\conditional_gan\\20260327_135403\\checkpoints\\best_epoch_001.pt",
+  "last_checkpoint_path": "C:\\Users\\Juice_Lover\\rag-runes\\artifacts\\conditional_gan\\20260327_135403\\checkpoints\\epoch_001.pt",
+  "history_length": 1,
+  "last_train_g_loss": 0.7240534771311279,
+  "last_train_d_loss": 2.440717321687423,
+  "last_val_g_loss": 0.38789979513011763,
+  "last_val_d_loss": 1.8920062744795387
+}
