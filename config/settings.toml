@@ -5,12 +5,13 @@ port = 8000
 [paths]
 books_dir = "books"
 index_dir = "data/index"
+synthetic_output_dir = "data/synthetic"
 
 [models]
-embedder_name = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
-reranker_name = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+embedder_name = "ollama:nomic-embed-text:latest"
+reranker_name = "none"
 segmenter_mode = "llm"
-ocr_model = "glm-ocr:q8_0"
+ocr_model = "qwen3-vl:235b-cloud"
 segmenter_model = "minimax-m2.5:cloud"
 answer_model = "minimax-m2.5:cloud"
 
@@ -29,3 +30,8 @@ bootstrap_on_startup = false
 ocr_api_key = ""
 segmenter_api_key = ""
 answer_api_key = ""
+
+[synthetic]
+checkpoint_path = "epoch_200.pt"
+device = "cpu"
+stone_texture_dir = ""

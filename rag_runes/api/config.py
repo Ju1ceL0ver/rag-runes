@@ -74,6 +74,7 @@ def _section_value(
 class AppConfig:
     books_dir: Path = Path("books")
     index_dir: Path = Path("data/index")
+    synthetic_output_dir: Path = Path("data/synthetic")
 
     embedder_name: str = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
     reranker_name: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
@@ -95,6 +96,10 @@ class AppConfig:
     context_chars: int = 750
 
     bootstrap_on_startup: bool = False
+
+    synthetic_checkpoint_path: Path = Path("epoch_200.pt")
+    synthetic_device: str = "cpu"
+    stone_texture_dir: Path | None = None
 
     @property
     def images_dir(self) -> Path:
@@ -119,10 +124,26 @@ class AppConfig:
             env_or("RAG_INDEX_DIR", "paths", "index_dir", "data/index"),
             "data/index",
         ) or "data/index"
+        synthetic_output_dir = _coerce_str(
+            env_or("RAG_SYNTHETIC_OUTPUT_DIR", "paths", "synthetic_output_dir", "data/synthetic"),
+            "data/synthetic",
+        ) or "data/synthetic"
+        synthetic_checkpoint_path = _coerce_str(
+            env_or("RAG_SYNTHETIC_CHECKPOINT", "synthetic", "checkpoint_path", "epoch_200.pt"),
+            "epoch_200.pt",
+        ) or "epoch_200.pt"
+        synthetic_device = _coerce_str(
+            env_or("RAG_SYNTHETIC_DEVICE", "synthetic", "device", "cpu"),
+            "cpu",
+        ) or "cpu"
+        stone_texture_dir = _coerce_str(
+            env_or("RAG_STONE_TEXTURE_DIR", "synthetic", "stone_texture_dir"),
+        )
 
         return cls(
             books_dir=Path(books_dir),
             index_dir=Path(index_dir),
+            synthetic_output_dir=Path(synthetic_output_dir),
             embedder_name=_coerce_str(
                 env_or(
                     "RAG_EMBEDDER",
@@ -195,4 +216,7 @@ class AppConfig:
                 env_or("RAG_BOOTSTRAP_ON_STARTUP", "params", "bootstrap_on_startup", False),
                 default=False,
             ),
+            synthetic_checkpoint_path=Path(synthetic_checkpoint_path),
+            synthetic_device=synthetic_device,
+            stone_texture_dir=Path(stone_texture_dir) if stone_texture_dir else None,
         )

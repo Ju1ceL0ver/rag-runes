@@ -11,16 +11,19 @@ requires-python = ">=3.10"
 dependencies = [
   "fastapi>=0.115.0",
   "numpy>=1.26.0",
+  "Pillow>=10.0.0",
   "PyMuPDF>=1.24.0",
   "python-multipart>=0.0.9",
   "rank-bm25>=0.2.2",
   "requests>=2.31.0",
   "sentence-transformers>=3.0.0",
+  "torch>=2.3.0",
+  "tqdm>=4.66.0",
   "uvicorn>=0.30.0"
 ]
 
 [project.optional-dependencies]
-ml = ["torch>=2.3.0"]
+ml = []
 dev = [
   "pytest>=8.0.0",
   "ruff>=0.6.0"

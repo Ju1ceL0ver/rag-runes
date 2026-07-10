@@ -143,8 +143,30 @@ class AnswerBuilder:
                 break
         return list(unique.values())
 
+    def _extractive_answer(self, query: str, hits: list[RetrievalHit], error: Exception) -> str:
+        if not hits:
+            raise RuntimeError(
+                "No context hits found for answer generation. "
+                "Upload more documents or adjust retrieval settings."
+            ) from error
+
+        lines = [
+            "LLM-генерация сейчас недоступна, поэтому ниже релевантные фрагменты из индекса.",
+            f"Вопрос: {query}",
+            "",
+        ]
+        for idx, hit in enumerate(hits[:5], start=1):
+            snippet = self._snippet(hit.text, 520)
+            lines.append(
+                f"{idx}. [p.{hit.page_from}-{hit.page_to}] {snippet}"
+            )
+        return "\n".join(lines).strip()
+
     def build(self, query: str, hits: list[RetrievalHit]) -> AnswerBundle:
-        answer = self._llm_answer(query=query, hits=hits)
+        try:
+            answer = self._llm_answer(query=query, hits=hits)
+        except Exception as exc:  # noqa: BLE001
+            answer = self._extractive_answer(query=query, hits=hits, error=exc)
         return AnswerBundle(
             answer=answer,
             reading_pages=self._reading_pages(hits=hits),

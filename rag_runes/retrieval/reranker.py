@@ -40,15 +40,17 @@ class CrossEncoderReranker(Reranker):
         return [hit for _, hit in rescored]
 
 
+class PassthroughReranker(Reranker):
+    def rerank(self, query: str, hits: list[RetrievalHit]) -> list[RetrievalHit]:
+        return hits
+
+
 def create_reranker(reranker_name: str) -> Reranker:
     selected = (reranker_name or "").strip()
     if not selected:
         raise ValueError("Reranker model is not configured.")
-    if selected.lower() in {"none", "off", "lexical", "token"}:
-        raise ValueError(
-            f"Reranker '{selected}' is disabled in strict mode. "
-            "Use a real cross-encoder model."
-        )
+    if selected.lower() in {"none", "off", "passthrough"}:
+        return PassthroughReranker()
     try:
         return CrossEncoderReranker(model_name=selected)
     except Exception as exc:  # noqa: BLE001

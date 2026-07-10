@@ -7,8 +7,13 @@ from rag_runes.ingest.semantic_segmenter import SemanticSegmenter
 from rag_runes.schema import BookArtifact, DocNode
 from rag_runes.text_utils import normalize_whitespace, rune_density, tokenize
 
-NUMBERED_RE = re.compile(r"^(\d+(?:\.\d+){0,3})[\.\)]?\s+(.+)$")
-ROMAN_RE = re.compile(r"^(?:[IVXLCM]{1,8})[\.\)]?\s+(.+)$")
+NUMBERED_RE = re.compile(r"^(\d+(?:\.\d+){0,3})[\.\)]\s+(.+)$")
+ROMAN_RE = re.compile(r"^([IVXLCM]{1,8})[\.\)]\s+(.+)$")
+DOTTED_LEADER_RE = re.compile(r"\.{5,}")
+PAGE_COUNTER_RE = re.compile(r"(?:^|\s)[-–—]?\s*\d+\s*/\s*\d+\s*$")
+CONTINUATION_END_RE = re.compile(r"[,;:–—-]\s*$")
+SHORT_CODE_RE = re.compile(r"^[A-Z]?\d[\w./-]*$", re.IGNORECASE)
+CODE_CHART_ROW_RE = re.compile(r"^[0-9A-FXx]{3,6};\s+")
 
 
 @dataclass(slots=True)
@@ -35,19 +40,41 @@ def detect_heading(line: str) -> tuple[int, str] | None:
     stripped = normalize_whitespace(line)
     if len(stripped) < 3:
         return None
+    if len(stripped.split()) <= 2 and SHORT_CODE_RE.match(stripped):
+        return None
+    if CODE_CHART_ROW_RE.match(stripped):
+        return None
+    if DOTTED_LEADER_RE.search(stripped):
+        return None
+    if CONTINUATION_END_RE.search(stripped):
+        return None
 
     numbered = NUMBERED_RE.match(stripped)
     if numbered:
         prefix, title = numbered.groups()
+        if (
+            len(title) > 90
+            or title.endswith((".", "!", "?"))
+            or sum(1 for ch in title if ch.isalpha()) < 3
+        ):
+            return None
         level = min(prefix.count(".") + 1, 3)
+        if level == 1 and len(title) > 48:
+            level = 2
         return level, title.strip()
 
     roman = ROMAN_RE.match(stripped)
-    if roman and len(stripped.split()) <= 10:
-        return 1, stripped
+    if roman and len(stripped.split()) <= 8 and len(stripped) <= 80:
+        prefix = roman.group(1)
+        title = roman.group(2).strip()
+        if (
+            (len(prefix) > 1 or prefix in {"I", "V", "X"})
+            and sum(1 for ch in title if ch.isalpha()) >= 3
+        ):
+            return 1, title
 
     words = stripped.split()
-    if len(words) > 14 or len(stripped) > 100:
+    if len(words) > 10 or len(stripped) > 84:
         return None
     if stripped.endswith((".", "!", "?")):
         return None
@@ -55,14 +82,30 @@ def detect_heading(line: str) -> tuple[int, str] | None:
     alphabetic = [ch for ch in stripped if ch.isalpha()]
     if not alphabetic:
         return None
+    if len(alphabetic) < 3:
+        return None
     upper_ratio = sum(1 for ch in alphabetic if ch.isupper()) / len(alphabetic)
-    title_case_ratio = sum(1 for word in words if word[:1].isupper()) / len(words)
+    title_words = [word for word in words if any(ch.isalpha() for ch in word)]
+    title_case_ratio = sum(1 for word in title_words if word[:1].isupper()) / len(
+        title_words
+    )
 
-    if upper_ratio > 0.72:
-        return 1, stripped
-    if title_case_ratio > 0.8:
+    if upper_ratio > 0.72 and len(words) <= 10:
+        return 2, stripped
+    if title_case_ratio > 0.8 and len(words) <= 7 and len(stripped) <= 68:
         return 2, stripped
     return None
+
+
+def is_page_noise(line: str) -> bool:
+    stripped = normalize_whitespace(line)
+    if not stripped:
+        return True
+    if PAGE_COUNTER_RE.search(stripped) and len(tokenize(stripped)) >= 4:
+        return True
+    if re.fullmatch(r"\d+\s*/\s*\d+", stripped):
+        return True
+    return False
 
 
 class TreeBuilder:
@@ -291,7 +334,11 @@ class TreeBuilder:
 
             page_images = list(page.image_ids)
             attached_images = False
-            page_lines = [line for line in page.text.splitlines() if line.strip()]
+            page_lines: list[str] = []
+            for raw_line in page.text.splitlines():
+                line = normalize_whitespace(raw_line)
+                if line and not is_page_noise(line):
+                    page_lines.append(line)
 
             for line in page_lines:
                 heading = detect_heading(line)

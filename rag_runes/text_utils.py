@@ -34,8 +34,47 @@ def split_sentences(value: str) -> list[str]:
     return [part.strip() for part in SENTENCE_SPLIT_RE.split(cleaned) if part.strip()]
 
 
+def _split_long_sentence(value: str, max_chars: int) -> list[str]:
+    if len(value) <= max_chars:
+        return [value]
+
+    parts: list[str] = []
+    current: list[str] = []
+    current_len = 0
+
+    for word in value.split():
+        if len(word) > max_chars:
+            if current:
+                parts.append(" ".join(current))
+                current = []
+                current_len = 0
+            parts.extend(
+                word[index : index + max_chars]
+                for index in range(0, len(word), max_chars)
+            )
+            continue
+
+        add_len = len(word) + (1 if current else 0)
+        if current and current_len + add_len > max_chars:
+            parts.append(" ".join(current))
+            current = []
+            current_len = 0
+            add_len = len(word)
+
+        current.append(word)
+        current_len += add_len
+
+    if current:
+        parts.append(" ".join(current))
+    return parts
+
+
 def split_text(value: str, max_chars: int, overlap: int) -> list[str]:
-    sentences = split_sentences(value)
+    sentences = [
+        part
+        for sentence in split_sentences(value)
+        for part in _split_long_sentence(sentence, max_chars=max_chars)
+    ]
     if not sentences:
         return []
 
@@ -64,6 +103,8 @@ def split_text(value: str, max_chars: int, overlap: int) -> list[str]:
             else:
                 current = []
                 current_len = 0
+
+            add_len = len(sentence) + (1 if current else 0)
 
         current.append(sentence)
         current_len += add_len

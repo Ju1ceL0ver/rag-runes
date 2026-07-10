@@ -1,9 +1,31 @@
 .venv/
 __pycache__/
+**/__pycache__/
 *.pyc
+.DS_Store
 
 .env
 .env.local
 
-data/
+data/*
+!data/index/
+!data/index/**
+data/index.backup*/
+data/index.rebuild_tmp*/
+data/index.reindex_*/
+data/manual_demo_visible/
+data/rock_*/
+data/single_overlay_*/
+data/synthetic*/
+data/*.log
+data/server.log
+data/query_*.json
+
 rag_runes.egg-info/
+
+*.zip
+*.ipynb
+temp.py
+rune_generator_bundle/
+simple_one_class_yolo/
+rune_cleaner_tk/

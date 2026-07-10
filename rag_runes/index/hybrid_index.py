@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -24,6 +25,26 @@ def _normalize(values: np.ndarray) -> np.ndarray:
 
 def _index_text(node: DocNode) -> str:
     return "\n".join(part for part in [node.title, node.text] if part).strip()
+
+
+TECHNICAL_CATALOG_QUERY_RE = re.compile(
+    r"\b(code|codepoint|unicode|ucs|smp|letter|character|chart|table|"
+    r"symbol|block|encoding|properties|код|юникод|символ|букв|таблиц)\b",
+    flags=re.IGNORECASE,
+)
+
+CODE_CHART_RE = re.compile(r"\b1xx[0-9a-f]{1,2}\b|KHAZARIAN ROVAS LETTER", re.IGNORECASE)
+ADMIN_FORM_RE = re.compile(
+    r"\b(appendix|proposal summary form|administrative|requester|reference|"
+    r"choose one of the following|submitted before|iso/iec 10646|"
+    r"приложение|административ)\b",
+    flags=re.IGNORECASE,
+)
+LOW_VALUE_SECTION_RE = re.compile(
+    r"\b(contents|bibliography|acknowledgement|references|оглавление|"
+    r"библиограф|благодарност)\b",
+    flags=re.IGNORECASE,
+)
 
 
 @dataclass(slots=True)
@@ -60,6 +81,37 @@ class HybridTreeIndex:
         for node in nodes:
             if node.parent_id:
                 self.children.setdefault(node.parent_id, []).append(node.node_id)
+
+    def _node_context_text(self, node: DocNode) -> str:
+        parts = [node.title, node.text]
+        cursor = node
+        while cursor.parent_id is not None:
+            parent = self.node_by_id.get(cursor.parent_id)
+            if parent is None:
+                break
+            parts.append(parent.title)
+            cursor = parent
+        return "\n".join(part for part in parts if part)
+
+    def _retrieval_quality_multiplier(self, query: str, node: DocNode) -> float:
+        context = self._node_context_text(node)
+        technical_query = bool(TECHNICAL_CATALOG_QUERY_RE.search(query or ""))
+
+        if ADMIN_FORM_RE.search(context):
+            return 0.25
+        if LOW_VALUE_SECTION_RE.search(context):
+            return 0.45
+        if CODE_CHART_RE.search(context) and not technical_query:
+            return 0.25
+
+        text = node.text or ""
+        if node.level == "chunk" and text:
+            semicolon_count = text.count(";")
+            sentence_marks = sum(text.count(mark) for mark in ".!?")
+            if semicolon_count >= 5 and sentence_marks <= 1 and not technical_query:
+                return 0.60
+
+        return 1.0
 
     @classmethod
     def build(
@@ -199,6 +251,7 @@ class HybridTreeIndex:
                 quality[idx] = float(node.metadata.get("image_quality", 0.35))
             else:
                 quality[idx] = 1.0
+            quality[idx] *= self._retrieval_quality_multiplier(query=query, node=node)
 
         if contains_rune_query(query):
             for idx, pos in enumerate(positions):
@@ -209,6 +262,11 @@ class HybridTreeIndex:
 
         base_scores = dense_weight * dense + sparse_weight * sparse + rune_boost
         quality_multiplier = (1.0 - quality_weight) + quality_weight * quality
+        quality_multiplier = np.where(
+            quality < 0.5,
+            quality_multiplier * quality,
+            quality_multiplier,
+        )
         scores = base_scores * quality_multiplier
         order = np.argsort(-scores)[:top_k]
         output: list[SearchHit] = []
